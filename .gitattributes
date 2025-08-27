@@ -1,0 +1,37 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# C++ source files
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.h text eol=lf
+*.cl text eol=lf
+
+# CMake files
+CMakeLists.txt text eol=lf
+*.cmake text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+
+# Python files
+*.py text eol=lf
+
+# JSON files
+*.json text eol=lf
+
+# Web files
+*.html text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+
+# Binary files (should not be modified)
+*.exe binary
+*.dll binary
+*.lib binary
+*.gz binary
+*.zip binary
+*.tar binary
+*.rar binary
+*.7z binary

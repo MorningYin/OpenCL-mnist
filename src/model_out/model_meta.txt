@@ -1,0 +1,4 @@
+# Layer shapes (in out) per Linear in order
+linear_0: 784 128
+linear_1: 128 64
+linear_2: 64 10

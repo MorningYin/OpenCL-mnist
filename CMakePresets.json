@@ -1,0 +1,22 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "x64-Release",
+      "displayName": "x64 Release (vcpkg)",
+      "generator": "Visual Studio 17 2022",
+      "binaryDir": "${sourceDir}/build/x64-Release",
+      "architecture": { "value": "x64" },
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "x64-Release",
+      "configurePreset": "x64-Release",
+      "configuration": "Release"
+    }
+  ]
+}

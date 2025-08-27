@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MNIST 前端 - 双路前向对比</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+    .grid { display: grid; grid-template-columns: 320px 1fr; gap: 24px; align-items: start; }
+    #canvas { border: 1px solid #ccc; background: #fff; touch-action: none;}
+    .row { margin: 8px 0; }
+    button { padding: 8px 12px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .out { background: #f7f7f9; padding: 12px; border-radius: 8px; }
+  </style>
+  <script>
+    let drawing = false;
+    let lastX = 0, lastY = 0;
+    function setupCanvas() {
+      const cvs = document.getElementById('canvas');
+      const ctx = cvs.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0,0,cvs.width,cvs.height);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = '#000';
+
+      const getPos = (e) => {
+        if (e.touches && e.touches[0]) {
+          const r = cvs.getBoundingClientRect();
+          return { x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top };
+        }
+        return { x: e.offsetX, y: e.offsetY };
+      };
+
+      const start = (e) => { drawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; e.preventDefault(); };
+      const move  = (e) => { if (!drawing) return; const p = getPos(e); ctx.beginPath(); ctx.moveTo(lastX,lastY); ctx.lineTo(p.x,p.y); ctx.stroke(); lastX=p.x; lastY=p.y; e.preventDefault(); };
+      const end   = (e) => { drawing = false; e.preventDefault(); };
+
+      cvs.addEventListener('mousedown', start);
+      cvs.addEventListener('mousemove', move);
+      cvs.addEventListener('mouseup', end);
+      cvs.addEventListener('mouseleave', end);
+      cvs.addEventListener('touchstart', start, {passive:false});
+      cvs.addEventListener('touchmove',  move,  {passive:false});
+      cvs.addEventListener('touchend',   end,   {passive:false});
+    }
+
+    function clearCanvas() {
+      const cvs = document.getElementById('canvas');
+      const ctx = cvs.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0,0,cvs.width,cvs.height);
+    }
+
+    function downscaleTo784() {
+      // 目标：将画板手写（白底黑字）转换为更贴近 MNIST 分布的 28x28 输入：
+      // - 提取前景（黑色笔迹）并计算包围盒与质心
+      // - 将较长边缩放到 20px，保持纵横比
+      // - 将缩放后的图像放入 28x28 的黑色背景上，并将质心对齐到中心 (14,14)
+      const src = document.getElementById('canvas');
+      const sctx = src.getContext('2d');
+      const W = src.width, H = src.height;
+      const img = sctx.getImageData(0, 0, W, H);
+
+      // 计算强度（黑字为高强度），并统计包围盒与质心
+      const intens = new Float32Array(W * H);
+      let sum = 0, sumX = 0, sumY = 0;
+      let minX = W, minY = H, maxX = -1, maxY = -1;
+      for (let y = 0; y < H; ++y) {
+        for (let x = 0; x < W; ++x) {
+          const k = (y * W + x) * 4;
+          const r = img.data[k + 0], g = img.data[k + 1], b = img.data[k + 2], a = img.data[k + 3];
+          const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+          let v = (255 - gray) / 255; // 黑字 -> 高强度，背景白 -> 低强度
+          if (a === 0) v = 0; // 透明视为背景
+          intens[y * W + x] = v;
+          if (v > 0.1) { // 阈值抑制噪声
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+          sum += v; sumX += v * x; sumY += v * y;
+        }
+      }
+
+      // 若无笔迹，返回全 0
+      if (maxX < minX || maxY < minY || sum === 0) {
+        return new Array(28 * 28).fill(0);
+      }
+
+      const cx = sumX / sum;
+      const cy = sumY / sum;
+      const bw = maxX - minX + 1;
+      const bh = maxY - minY + 1;
+      const scale = 20 / Math.max(bw, bh);
+
+      // 目标 28x28 画布：填充白底
+      // 注意：我们随后使用 v = (255 - gray) / 255 做反色映射
+      //       白色背景 gray=255 -> v=0，黑色笔迹 gray≈0 -> v≈1
+      const dst = document.createElement('canvas');
+      dst.width = 28; dst.height = 28;
+      const dctx = dst.getContext('2d');
+      dctx.fillStyle = '#fff';
+      dctx.fillRect(0, 0, 28, 28);
+      dctx.imageSmoothingEnabled = true;
+      dctx.imageSmoothingQuality = 'high';
+
+      const dw = Math.max(1, Math.round(bw * scale));
+      const dh = Math.max(1, Math.round(bh * scale));
+      const comX = (cx - minX) * scale;
+      const comY = (cy - minY) * scale;
+      const dx = Math.round(14 - comX);
+      const dy = Math.round(14 - comY);
+
+      // 将原图中 [minX,minY,bw,bh] 区域缩放后绘制到目标位置（超出部分会被裁剪）
+      dctx.drawImage(src, minX, minY, bw, bh, dx, dy, dw, dh);
+
+      // 读取 28x28，转换为 [0,1] 强度（黑字为高值，背景为 0）
+      const outImg = dctx.getImageData(0, 0, 28, 28);
+      const out = new Array(28 * 28);
+      for (let i = 0; i < 28 * 28; ++i) {
+        const r = outImg.data[i * 4 + 0];
+        const g = outImg.data[i * 4 + 1];
+        const b = outImg.data[i * 4 + 2];
+        const a = outImg.data[i * 4 + 3];
+        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+        let v = (255 - gray) / 255; // 黑字高亮
+        if (a === 0) v = 0;
+        // 不做每样本再归一化，保持与训练分布一致
+        out[i] = Number(Math.max(0, Math.min(1, v)).toFixed(6));
+      }
+      return out;
+    }
+
+    async function inferOnce() {
+      const pixels = downscaleTo784();
+      const res = await fetch('/infer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pixels }) });
+      if (!res.ok) { alert('请求失败'); return; }
+      const data = await res.json();
+      document.getElementById('outA').textContent = `A: 预测 ${data.methodA.pred}, 用时 ${data.methodA.ms.toFixed(3)} ms`;
+      document.getElementById('outB').textContent = `B: 预测 ${data.methodB.pred}, 用时 ${data.methodB.ms.toFixed(3)} ms`;
+    }
+
+    window.addEventListener('DOMContentLoaded', setupCanvas);
+  </script>
+</head>
+<body>
+  <h2>MNIST 前端 - 双路前向对比</h2>
+  <div class="grid">
+    <div>
+      <canvas id="canvas" width="280" height="280"></canvas>
+      <div class="row">
+        <button onclick="inferOnce()">前向推理</button>
+        <button onclick="clearCanvas()">清空</button>
+      </div>
+      <div class="row mono">将画板手写数字缩放成 28x28 并归一化至 [0,1]</div>
+    </div>
+    <div>
+      <div class="out mono" id="outA">A: 等待推理...</div>
+      <div class="out mono" id="outB" style="margin-top:8px;">B: 等待推理...</div>
+      <div class="row" style="margin-top:16px;">说明：
+        <ul>
+          <li>方法A：单核函数前向（kernels/A.cl）</li>
+          <li>方法B：分层核函数前向（kernels/B.cl）</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+
+
